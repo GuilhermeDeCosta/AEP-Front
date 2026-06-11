@@ -1,7 +1,7 @@
 /* ==========================================
    CONFIGURAÇÃO E ESTADO DA APLICAÇÃO
    ========================================== */
-const API_BASE = 'http://localhost:3000/api/v1';
+const API_BASE = 'http://localhost:8080/api/v1';
 
 let pecas = [];
 let marcas = [];
@@ -12,6 +12,7 @@ let totalItens = 0;
 let filtroMarca = null;
 let termoBusca = '';
 let timerDebounce = null;
+let pecaEmEdicaoId = null; // Controla se estamos criando ou editando
 
 /* ==========================================
    COMUNICAÇÃO COM A API (FETCH)
@@ -266,6 +267,11 @@ function renderPecas() {
           <div style="font-size:0.8rem; color:#666;">Cód: ${codigo}</div>
           <div style="display:flex; justify-content:space-between; align-items:center; margin-top:15px; border-top:1px solid #eee; padding-top:10px;">
             <div style="font-weight:bold; color:var(--primaria); font-size:1.2rem;"><small style="font-size:0.8rem;">R$</small> ${preco.toFixed(2).replace('.', ',')}</div>
+            
+            <div style="display:flex; gap: 10px;">
+                <button onclick="editarPeca('${p.id}')" style="background:transparent; border:none; cursor:pointer; font-size:1.2rem; transition: transform 0.2s;" onmouseover="this.style.transform='scale(1.2)'" onmouseout="this.style.transform='scale(1)'" title="Editar">✏️</button>
+                <button onclick="deletarPeca('${p.id}')" style="background:transparent; border:none; cursor:pointer; font-size:1.2rem; transition: transform 0.2s;" onmouseover="this.style.transform='scale(1.2)'" onmouseout="this.style.transform='scale(1)'" title="Excluir">🗑️</button>
+            </div>
           </div>
         </div>
       </div>`;
@@ -364,13 +370,13 @@ async function salvarPeca(event) {
   // 1. CAPTURA O TOKEN DE LOGIN (ajuste a chave se o seu sistema salvou com outro nome, ex: 'auth_token')
   const token = localStorage.getItem('token') || localStorage.getItem('accessToken');
 
-  // Captura dos dados dos campos do formulário
-  const name = document.getElementById('m-name')?.value || document.getElementById('name')?.value;
-  const code = document.getElementById('m-code')?.value || document.getElementById('code')?.value;
+// Captura dos dados dos campos do formulário (AJUSTADO PARA OS IDs DO HTML)
+  const name = document.getElementById('m-nome')?.value;
+  const code = document.getElementById('m-oem')?.value;
   const brandId = document.getElementById('m-brandId')?.value;
-  const description = document.getElementById('m-description')?.value;
-  const stock = parseInt(document.getElementById('m-stock')?.value || 0);
-  const price = parseFloat(document.getElementById('m-price')?.value || 0);
+  const description = document.getElementById('m-descricao')?.value;
+  const stock = parseInt(document.getElementById('m-qtd')?.value || 0);
+  const price = parseFloat(document.getElementById('m-venda')?.value || 0);
   
   // Pega os IDs dos veículos selecionados na listagem múltipla
   const selectVeiculos = document.getElementById('m-vehicles');
@@ -382,11 +388,14 @@ async function salvarPeca(event) {
 
   try {
     // 2. ENVIO COM OS HEADERS DE AUTENTICAÇÃO
-    const resposta = await fetch('http://localhost:3000/api/v1/parts', {
-      method: 'POST',
+    // Decide se é um POST (nova peça) ou PUT (editando)
+    const metodo = pecaEmEdicaoId ? 'PUT' : 'POST';
+    const urlDaRota = pecaEmEdicaoId ? `${API_BASE}/parts/${pecaEmEdicaoId}` : `${API_BASE}/parts`;
+
+    const resposta = await fetch(urlDaRota, {
+      method: metodo,
       headers: {
         'Content-Type': 'application/json',
-        // Se houver um token no localStorage, ele é enviado aqui:
         ...(token && { 'Authorization': `Bearer ${token}` })
       },
       body: JSON.stringify(dadosPeca)
@@ -405,6 +414,8 @@ async function salvarPeca(event) {
     // Sucesso!
     alert('Peça cadastrada com sucesso!');
     
+    limparModal(); // 🚀 ADICIONE ESTA LINHA: Ela zera o ID e limpa os campos para a próxima peça
+    
     // Fecha o modal (ajuste o nome da sua função se for diferente)
     if (typeof fecharModal === 'function') fecharModal(); 
     
@@ -419,6 +430,10 @@ async function salvarPeca(event) {
 }
 
 function limparModal() {
+    pecaEmEdicaoId = null; // Reseta o status de edição
+  const tituloModal = document.querySelector('.modal-title');
+  if (tituloModal) tituloModal.innerHTML = 'Cadastrar <span>Nova Peça</span>';
+
   ['m-nome', 'm-oem', 'm-descricao', 'm-qtd', 'm-venda', 'm-minstock'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = '';
@@ -447,3 +462,41 @@ document.addEventListener('DOMContentLoaded', async () => {
   ]);
   await carregarPecas();
 });
+
+/* ==========================================
+   EXCLUIR PEÇA (DELETE) E EDITAR (PUT)
+   ========================================== */
+async function deletarPeca(id) {
+  if (!confirm('Tem certeza que deseja excluir esta peça?')) return;
+
+  try {
+    const res = await fetch(`${API_BASE}/parts/${id}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error('Erro ao excluir a peça');
+    
+    mostrarToast('Peça excluída com sucesso!', 'sucesso');
+    carregarPecas(); // Recarrega a tela
+  } catch (erro) {
+    mostrarToast(erro.message, 'erro');
+  }
+}
+
+function editarPeca(id) {
+  // Encontra a peça clicada na lista que já está carregada
+  const peca = pecas.find(p => p.id === id);
+  if (!peca) return;
+
+  pecaEmEdicaoId = id; // Avisa o sistema que estamos editando
+  
+  // Preenche os campos do modal com os dados da peça
+  document.getElementById('m-nome').value = peca.name || '';
+  document.getElementById('m-oem').value = peca.code || '';
+  document.getElementById('m-brandId').value = peca.brandId || '';
+  document.getElementById('m-descricao').value = peca.description || '';
+  document.getElementById('m-qtd').value = peca.stock || 0;
+  document.getElementById('m-venda').value = peca.price || 0;
+  
+  // Altera o título do modal e abre
+  const tituloModal = document.querySelector('.modal-title');
+  if (tituloModal) tituloModal.innerHTML = 'Editar <span>Peça</span>';
+  abrirModal();
+}
